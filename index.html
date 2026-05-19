@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CR Dashboard – Cost Saving & Material Analysis</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+  <script src="https://code.highcharts.com/highcharts.js"></script>
+  <script src="https://code.highcharts.com/highcharts-more.js"></script>
+  <script src="https://code.highcharts.com/modules/exporting.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            navy: { DEFAULT: '#0B1F4D', light: '#152a63', dark: '#071535' },
+            brand: { blue: '#2563EB', green: '#16A34A', orange: '#F97316', purple: '#7C3AED', red: '#DC2626' }
+          },
+          fontFamily: {
+            sans: ['DM Sans', 'sans-serif'],
+            display: ['Space Grotesk', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    :root {
+      --sidebar-w: 240px;
+      --header-h: 60px;
+      --toolbar-h: 50px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: #F8FAFC;
+      color: #1e293b;
+      overflow-x: hidden;
+    }
+
+    /* ── Sidebar ─────────────────── */
+    #sidebar {
+      width: var(--sidebar-w);
+      background: linear-gradient(180deg, #0B1F4D 0%, #071535 100%);
+      position: fixed; top: 0; left: 0; bottom: 0;
+      z-index: 40; transition: transform .3s ease;
+      display: flex; flex-direction: column;
+    }
+    .sidebar-logo {
+      display: flex; align-items: center; gap: 10px;
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid rgba(255,255,255,.08); flex-shrink: 0;
+    }
+    .sidebar-logo-icon {
+      width: 34px; height: 34px; border-radius: 8px;
+      background: linear-gradient(135deg, #2563EB, #7C3AED);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; color: #fff; flex-shrink: 0;
+    }
+    .sidebar-logo-text { line-height: 1.15; }
+    .sidebar-logo-text .brand { font-family: 'Space Grotesk'; font-size: 14px; font-weight: 700; color: #fff; }
+    .sidebar-logo-text .sub  { font-size: 9px; color: rgba(255,255,255,.4); letter-spacing: 2px; text-transform: uppercase; }
+
+    nav.sidebar-nav { padding: 12px 10px; flex: 1; overflow-y: auto; }
+    .nav-group-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: rgba(255,255,255,.3); padding: 0 10px 8px; margin-top: 4px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 13px; border-radius: 9px; cursor: pointer;
+      transition: all .2s; margin-bottom: 2px; color: rgba(255,255,255,.6);
+      font-size: 13px; font-weight: 500; text-decoration: none; user-select: none;
+    }
+    .nav-item i { width: 17px; text-align: center; font-size: 13px; }
+    .nav-item:hover { background: rgba(255,255,255,.08); color: #fff; }
+    .nav-item.active {
+      background: linear-gradient(135deg, #2563EB, #1d4ed8);
+      color: #fff; box-shadow: 0 4px 16px rgba(37,99,235,.4);
+    }
+
+    /* ── Header ─────────────────── */
+    #header {
+      position: fixed; top: 0; left: var(--sidebar-w); right: 0;
+      height: var(--header-h); z-index: 30;
+      background: #fff; border-bottom: 1px solid #e2e8f0;
+      display: flex; align-items: center; padding: 0 20px; gap: 12px;
+    }
+    #hamburger { display: none; cursor: pointer; background: none; border: none; padding: 4px; }
+
+    /* ── Toolbar (1 row: upload + filters) ─────────────────── */
+    #toolbar {
+      position: fixed;
+      top: var(--header-h); left: var(--sidebar-w); right: 0;
+      height: var(--toolbar-h); z-index: 29;
+      background: #f1f5f9;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex; align-items: center;
+      padding: 0 18px; gap: 8px;
+      overflow-x: auto; overflow-y: hidden;
+      white-space: nowrap;
+    }
+    #toolbar::-webkit-scrollbar { height: 3px; }
+
+    /* Upload pill */
+    #upload-pill {
+      display: inline-flex; align-items: center; gap: 7px;
+      border: 1.5px dashed #94a3b8; border-radius: 9px;
+      background: #fff; padding: 4px 11px;
+      cursor: pointer; transition: all .2s; flex-shrink: 0;
+    }
+    #upload-pill:hover { border-color: #2563EB; background: #eff6ff; }
+    #upload-pill.success { border-style: solid; border-color: #16A34A; background: #f0fdf4; }
+    #upload-pill .pill-icon  { font-size: 14px; color: #64748b; transition: color .2s; }
+    #upload-pill.success .pill-icon { color: #16A34A; }
+    #upload-pill .pill-main { font-size: 12px; font-weight: 700; color: #475569; line-height: 1; }
+    #upload-pill.success .pill-main { color: #15803d; }
+    #upload-pill .pill-sub  { font-size: 10px; color: #94a3b8; line-height: 1; }
+    #upload-pill.success .pill-sub  { color: #4ade80; }
+
+    .tb-sep { width: 1px; height: 24px; background: #cbd5e1; flex-shrink: 0; }
+
+    .filter-label {
+      font-size: 10px; font-weight: 700; letter-spacing: 1px;
+      text-transform: uppercase; color: #94a3b8; flex-shrink: 0;
+    }
+
+    .filter-select {
+      border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: 4px 8px; font-size: 11.5px; background: #fff;
+      color: #334155; cursor: pointer; outline: none;
+      transition: border .2s; flex-shrink: 0; height: 30px;
+    }
+    .filter-select:focus { border-color: #2563EB; }
+
+    #btn-reset {
+      border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: 4px 11px; font-size: 11.5px; font-weight: 600;
+      background: #fff; color: #64748b; cursor: pointer;
+      flex-shrink: 0; height: 30px; transition: all .2s;
+    }
+    #btn-reset:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+    /* ── Main ─────────────────── */
+    #main {
+      margin-left: var(--sidebar-w);
+      padding-top: calc(var(--header-h) + var(--toolbar-h));
+      min-height: 100vh;
+    }
+    #page-content { padding: 18px 20px; }
+
+    /* ── Paired row: cards col + charts col ─────────────────── */
+    /*
+       The cards column auto-stretches to the height of the charts column
+       because the parent is a CSS grid with align-items:stretch.
+       Each stat-card then uses flex:1 to share that height equally.
+    */
+    .paired-row {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 16px;
+      align-items: stretch;   /* key: both cols same height */
+    }
+
+    .cards-col {
+      display: flex; flex-direction: column; gap: 10px;
+    }
+
+    .stat-card {
+      background: #fff; border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 1px 3px rgba(0,0,0,.05);
+      padding: 14px 14px;
+      transition: transform .2s, box-shadow .2s;
+      cursor: default;
+      flex: 1;                /* share height equally */
+      display: flex; flex-direction: column; justify-content: space-between;
+      min-height: 0;          /* allow shrink */
+    }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.09); }
+
+    .stat-icon {
+      width: 32px; height: 32px; border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; flex-shrink: 0;
+    }
+    .stat-value { font-family: 'Space Grotesk'; font-size: 16px; font-weight: 700; line-height: 1.2; }
+    .stat-label { font-size: 10px; color: #94a3b8; margin-top: 1px; }
+
+    /* ── Section / chart headers ─────────────────── */
+    .section-header {
+      background: linear-gradient(90deg, #0B1F4D, #152a63);
+      color: #fff; padding: 9px 16px;
+      border-radius: 11px 11px 0 0;
+      font-family: 'Space Grotesk'; font-weight: 700; font-size: 10.5px;
+      letter-spacing: 1.5px; text-transform: uppercase;
+      display: flex; align-items: center; gap: 7px; flex-shrink: 0;
+    }
+
+    .chart-card {
+      background: #fff; border: 1px solid #e2e8f0; border-top: none;
+      border-radius: 0 0 11px 11px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.05);
+      overflow: hidden; flex: 1;
+    }
+
+    /* chart-block = section-header + chart-card, full height */
+    .chart-block { display: flex; flex-direction: column; height: 100%; }
+    .chart-block .chart-card { flex: 1; }
+
+    /* inner chart block (inside existing card) */
+    .inner-chart-block { display: flex; flex-direction: column; }
+    .inner-section-hd {
+      background: linear-gradient(90deg, #0B1F4D, #152a63);
+      color: #fff; padding: 7px 14px; border-radius: 8px 8px 0 0;
+      font-family: 'Space Grotesk'; font-weight: 700; font-size: 10px;
+      letter-spacing: 1.5px; text-transform: uppercase;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .inner-chart-body {
+      border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px;
+      background: #fff; padding: 10px; flex: 1;
+    }
+
+    /* ── Table ─────────────────── */
+    .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .data-table thead th {
+      background: #0B1F4D; color: #fff; padding: 8px 12px;
+      text-align: left; font-weight: 600; font-size: 10px;
+      letter-spacing: .8px; text-transform: uppercase;
+      position: sticky; top: 0; z-index: 1;
+    }
+    .data-table tbody tr { border-bottom: 1px solid #f1f5f9; }
+    .data-table tbody tr:nth-child(even) { background: #f8fafc; }
+    .data-table tbody tr:hover { background: #eff6ff; }
+    .data-table td { padding: 7px 12px; }
+
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: 600; }
+    .badge-yellow { background: #fef9c3; color: #854d0e; }
+    .badge-green  { background: #dcfce7; color: #166534; }
+    .badge-red    { background: #fee2e2; color: #991b1b; }
+    .badge-blue   { background: #dbeafe; color: #1e40af; }
+
+    /* ── Material cards ─────────────────── */
+    .mat-card { border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,.05); background: #fff; transition: transform .2s, box-shadow .2s; }
+    .mat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.09); }
+    .mini-bar-track { background: #e2e8f0; border-radius: 99px; height: 5px; }
+    .mini-bar-fill  { height: 5px; border-radius: 99px; transition: width .6s; }
+
+    /* ── Skeleton ─────────────────── */
+    .skeleton {
+      background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+      background-size: 400% 100%; animation: shimmer 1.4s infinite;
+      border-radius: 6px; color: transparent !important;
+    }
+    @keyframes shimmer { 0%{background-position:100% 0} 100%{background-position:-100% 0} }
+
+    /* ── Fade animations ─────────────────── */
+    @keyframes fadeUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:none} }
+    .fade-up { animation: fadeUp .35s ease both; }
+
+    /* ── Scrollbar ─────────────────── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+
+    /* ── Responsive ─────────────────── */
+    @media(max-width: 1024px) {
+      :root { --sidebar-w: 0px; }
+      #sidebar { transform: translateX(-240px); width: 240px; }
+      #sidebar.open { transform: translateX(0); }
+      #header, #toolbar { left: 0; }
+      #main  { margin-left: 0; }
+      #hamburger { display: flex; }
+      #overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 39; }
+      #overlay.show { display: block; }
+      .paired-row { grid-template-columns: 1fr; }
+      .cards-col { flex-direction: row; flex-wrap: wrap; }
+      .stat-card { flex: 1 1 calc(50% - 5px); min-width: 130px; height: auto; }
+    }
+    @media(max-width:640px) {
+      #page-content { padding: 12px; }
+      .stat-value { font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── SIDEBAR ── -->
+<aside id="sidebar">
+  <div class="sidebar-logo">
+    <div class="sidebar-logo-icon"><i class="fa-solid fa-chart-column"></i></div>
+    <div class="sidebar-logo-text">
+      <div class="brand">CR</div>
+      <div class="sub">Dashboard</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-group-label">Menu Utama</div>
+    <a class="nav-item active" data-page="overview" onclick="navigate('overview')">
+      <i class="fa-solid fa-house"></i> Overview
+    </a>
+    <a class="nav-item" data-page="saving" onclick="navigate('saving')">
+      <i class="fa-solid fa-piggy-bank"></i> Saving Analysis
+    </a>
+    <a class="nav-item" data-page="ng" onclick="navigate('ng')">
+      <i class="fa-solid fa-triangle-exclamation"></i> NG Development
+    </a>
+    <a class="nav-item" data-page="material" onclick="navigate('material')">
+      <i class="fa-solid fa-boxes-stacked"></i> Material Usage
+    </a>
+  </nav>
+  <div class="p-4 text-xs text-white/20 text-center border-t border-white/5">v1.0.0 &bull; CR Analytics</div>
+</aside>
+
+<div id="overlay" onclick="closeSidebar()"></div>
+
+<!-- ── HEADER ── -->
+<header id="header">
+  <button id="hamburger" class="text-slate-500 hover:text-slate-800" onclick="toggleSidebar()">
+    <i class="fa-solid fa-bars text-base"></i>
+  </button>
+  <div class="flex-1 min-w-0">
+    <h1 class="font-display font-bold text-navy text-sm sm:text-[14px] leading-tight truncate">
+      COST SAVING &amp; MATERIAL ANALYSIS DASHBOARD
+    </h1>
+    <p class="text-slate-400 text-[10.5px] hidden sm:block mt-0.5">
+      Monitoring Cost Saving, NG Potential Development &amp; Material Usage
+    </p>
+  </div>
+</header>
+
+<!-- ── TOOLBAR: upload + filters in ONE row ── -->
+<div id="toolbar">
+
+  <!-- Upload pill -->
+  <div id="upload-pill"
+       onclick="document.getElementById('file-input').click()"
+       ondragover="handleDragOver(event)"
+       ondragleave="handleDragLeave(event)"
+       ondrop="handleDrop(event)"
+       title="Drag & drop atau klik untuk upload file Excel">
+    <input type="file" id="file-input" accept=".xlsx,.xls" class="hidden" onchange="handleFile(event)" />
+    <span class="pill-icon"><i id="upload-icon" class="fa-solid fa-file-arrow-up"></i></span>
+    <div>
+      <div class="pill-main" id="pill-main">Upload Excel</div>
+      <div class="pill-sub" id="pill-sub">.xlsx / .xls</div>
+    </div>
+  </div>
+
+  <div class="tb-sep"></div>
+
+  <!-- Filter Periode: Bulan + Tahun -->
+  <span class="filter-label">Periode</span>
+  <select id="filter-bulan" class="filter-select">
+    <option value="">Semua Bulan</option>
+    <option value="1">Januari</option>
+    <option value="2">Februari</option>
+    <option value="3">Maret</option>
+    <option value="4">April</option>
+    <option value="5">Mei</option>
+    <option value="6">Juni</option>
+    <option value="7">Juli</option>
+    <option value="8">Agustus</option>
+    <option value="9">September</option>
+    <option value="10">Oktober</option>
+    <option value="11">November</option>
+    <option value="12">Desember</option>
+  </select>
+
+  <select id="filter-tahun" class="filter-select">
+    <option value="">Semua Tahun</option>
+  </select>
+
+  <div class="tb-sep"></div>
+
+  <!-- Filter Material -->
+  <span class="filter-label">Material</span>
+  <select id="filter-material" class="filter-select">
+    <option value="">Semua</option>
+  </select>
+
+  <!-- Filter Part -->
+  <select id="filter-part" class="filter-select hidden sm:inline-block">
+    <option value="">Semua Part</option>
+  </select>
+
+  <!-- Filter Scenario -->
+  <select id="filter-scenario" class="filter-select hidden md:inline-block">
+    <option value="">Semua Scenario</option>
+    <option value="Standard">Standard</option>
+    <option value="Alternative">Alternative</option>
+  </select>
+
+  <!-- Reset -->
+  <button id="btn-reset" onclick="resetFilters()">
+    <i class="fa-solid fa-rotate-left"></i> Reset
+  </button>
+</div>
+
+<!-- ── MAIN ── -->
+<main id="main">
+  <div id="page-content">
+
+    <!-- ════════════════════════════════════════════
+         ROW 1: Stat Cards (left col, stretches to chart height)
+                + Cost Comparison & Top 10 Saving (right col)
+    ════════════════════════════════════════════ -->
+    <div class="paired-row mb-4 fade-up" id="row-overview">
+
+      <!-- LEFT: 5 stat cards, each flex:1 to share the column height -->
+      <div class="cards-col">
+
+        <div class="stat-card">
+          <div class="flex items-center justify-between mb-1">
+            <div class="stat-icon bg-blue-100 text-blue-600"><i class="fa-solid fa-chart-bar text-xs"></i></div>
+            <span class="badge badge-blue">Std</span>
+          </div>
+          <div>
+            <div class="stat-value text-slate-800" id="card-standard">-</div>
+            <div class="stat-label">Total Cost Standard</div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="flex items-center justify-between mb-1">
+            <div class="stat-icon bg-green-100 text-green-600"><i class="fa-solid fa-leaf text-xs"></i></div>
+            <span class="badge badge-green">Alt</span>
+          </div>
+          <div>
+            <div class="stat-value text-slate-800" id="card-alt">-</div>
+            <div class="stat-label">Total Cost Alternative</div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="flex items-center justify-between mb-1">
+            <div class="stat-icon bg-purple-100 text-purple-600"><i class="fa-solid fa-sack-dollar text-xs"></i></div>
+            <span class="badge" style="background:#ede9fe;color:#5b21b6">Save</span>
+          </div>
+          <div>
+            <div class="stat-value text-slate-800" id="card-saving">-</div>
+            <div class="stat-label">Total Saving</div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="flex items-center justify-between mb-1">
+            <div class="stat-icon bg-orange-100 text-orange-500"><i class="fa-solid fa-percent text-xs"></i></div>
+            <span class="badge" style="background:#fff7ed;color:#9a3412">%</span>
+          </div>
+          <div>
+            <div class="stat-value text-slate-800" id="card-pct">-</div>
+            <div class="stat-label">% Saving</div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="flex items-center justify-between mb-1">
+            <div class="stat-icon bg-red-100 text-red-600"><i class="fa-solid fa-circle-xmark text-xs"></i></div>
+            <span class="badge badge-red">NG</span>
+          </div>
+          <div>
+            <div class="stat-value text-slate-800" id="card-ng">-</div>
+            <div class="stat-label">Total NG Potential</div>
+          </div>
+        </div>
+
+      </div><!-- /cards-col -->
+
+      <!-- RIGHT: 2-col chart grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4" style="align-items:stretch">
+
+        <div class="chart-block fade-up" style="animation-delay:.06s">
+          <div class="section-header"><i class="fa-solid fa-chart-column"></i> COST COMPARISON (OVERALL)</div>
+          <div class="chart-card p-3">
+            <div id="chart-comparison" style="height:330px"></div>
+          </div>
+        </div>
+
+        <div class="chart-block fade-up" style="animation-delay:.1s">
+          <div class="section-header"><i class="fa-solid fa-ranking-star"></i> TOP 10 SAVING PART</div>
+          <div class="chart-card p-3">
+            <div id="chart-top10-saving" style="height:330px"></div>
+          </div>
+        </div>
+
+      </div>
+
+    </div><!-- /paired-row -->
+
+    <!-- ════════════════════════════════════════════
+         SECTION 2 – SAVING BERDASARKAN MATERIAL
+    ════════════════════════════════════════════ -->
+    <div class="mb-4 fade-up" style="animation-delay:.14s">
+      <div class="section-header"><i class="fa-solid fa-cubes"></i> SAVING BERDASARKAN MATERIAL</div>
+      <div class="chart-card p-4">
+        <div id="material-cards" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="col-span-3 flex flex-col items-center justify-center py-10 text-center text-slate-400">
+            <i class="fa-solid fa-cubes text-3xl mb-3 opacity-20"></i>
+            <p class="text-sm font-medium">Belum ada data material</p>
+            <p class="text-xs mt-1">Upload file Excel untuk menampilkan ringkasan material</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         SECTION 3 – NG DEVELOPMENT
+    ════════════════════════════════════════════ -->
+    <div id="page-ng" class="mb-4 fade-up" style="animation-delay:.18s">
+      <div class="section-header"><i class="fa-solid fa-triangle-exclamation"></i> DATA NG YANG POTENSI DEVELOP</div>
+      <div class="chart-card p-4">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+          <div class="inner-chart-block">
+            <div class="inner-section-hd"><i class="fa-solid fa-arrow-up-9-1"></i> TOP 10 NG PART</div>
+            <div class="inner-chart-body" style="min-height:300px">
+              <div id="chart-top10-ng" style="height:300px"></div>
+            </div>
+          </div>
+
+          <div class="inner-chart-block">
+            <div class="inner-section-hd"><i class="fa-solid fa-braille"></i> NG VS POTENSI SAVING</div>
+            <div class="inner-chart-body" style="min-height:300px">
+              <div id="chart-scatter" style="height:300px"></div>
+            </div>
+          </div>
+
+          <div class="inner-chart-block">
+            <div class="inner-section-hd"><i class="fa-solid fa-table"></i> DETAIL NG PART</div>
+            <div class="inner-chart-body" style="padding:0; overflow-y:auto; max-height:350px;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Part</th><th>Material</th><th>NG</th><th>Saving</th><th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="ng-table-body">
+                  <tr><td colspan="5" class="text-center text-slate-400 py-8 text-xs">Belum ada data</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         SECTION 4 – MATERIAL USAGE
+    ════════════════════════════════════════════ -->
+    <div id="page-material" class="mb-4 fade-up" style="animation-delay:.22s">
+      <div class="section-header"><i class="fa-solid fa-boxes-stacked"></i> DATA PENGGUNAAN MATERIAL</div>
+      <div class="chart-card p-4">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+          <div class="inner-chart-block">
+            <div class="inner-section-hd"><i class="fa-regular fa-circle-dot"></i> KOMPOSISI PENGGUNAAN MATERIAL</div>
+            <div class="inner-chart-body">
+              <div id="chart-donut" style="height:290px"></div>
+            </div>
+          </div>
+
+          <div class="inner-chart-block">
+            <div class="inner-section-hd"><i class="fa-solid fa-chart-simple"></i> TOTAL PART BY MATERIAL</div>
+            <div class="inner-chart-body">
+              <div id="chart-by-material" style="height:290px"></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /page-content -->
+</main>
+
+<!-- Empty state template -->
+<template id="tpl-empty">
+  <div class="flex flex-col items-center justify-center h-full text-center p-6" style="min-height:200px">
+    <svg width="64" height="64" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" class="mb-3 opacity-30">
+      <rect width="80" height="80" rx="16" fill="#EFF6FF"/>
+      <path d="M20 56V32l20-12 20 12v24L40 68 20 56Z" fill="#DBEAFE" stroke="#93C5FD" stroke-width="2"/>
+      <path d="M40 56V44M40 44L30 38M40 44L50 38" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="40" cy="36" r="4" fill="#3B82F6"/>
+    </svg>
+    <p class="font-semibold text-slate-400 text-sm">Belum ada data</p>
+    <p class="text-slate-400 text-xs mt-1">Upload file Excel untuk menampilkan dashboard</p>
+  </div>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>
