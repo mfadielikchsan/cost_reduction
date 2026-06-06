@@ -349,7 +349,6 @@
       font-size: 12px; font-weight: 500; color: #475569;
     }
 
-
     /* ========================================================= */
     /* FILTER TOOLBAR */
     /* ========================================================= */
@@ -365,14 +364,13 @@
       display:flex;
       flex-direction:column;
       gap:6px;
-
       width:180px;
       min-width:180px;
     }
 
     .filter-group-wide{
-      width:260px;
-      min-width:260px;
+      width:180px;
+      min-width:180px;
     }
 
     /* ========================================================= */
@@ -382,9 +380,7 @@
     .filter-label{
       font-size:11px;
       font-weight:700;
-
       color:#64748b;
-
       text-transform:uppercase;
       letter-spacing:.06em;
     }
@@ -398,126 +394,82 @@
     }
 
     /* BOX */
-
     .select2-container--default
     .select2-selection--multiple{
-
       min-height:44px !important;
       height:44px !important;
-
       border-radius:12px !important;
-
       border:1px solid #cbd5e1 !important;
-
       background:#fff !important;
-
       display:flex !important;
       align-items:center !important;
-
       padding:0 12px !important;
-
       overflow:hidden !important;
-
       transition:.2s;
     }
 
     /* HOVER */
-
     .select2-container--default
     .select2-selection--multiple:hover{
       border-color:#94a3b8 !important;
     }
 
     /* FOCUS */
-
     .select2-container--default.select2-container--focus
     .select2-selection--multiple{
-
       border-color:#2563eb !important;
-
-      box-shadow:
-        0 0 0 3px rgba(37,99,235,.12);
+      box-shadow: 0 0 0 3px rgba(37,99,235,.12);
     }
 
     /* ========================================================= */
     /* SEARCH INPUT */
     /* ========================================================= */
 
-    .select2-search--inline{
-
-      display:flex !important;
-      align-items:center;
-    }
-
+    .select2-container--default
+    .select2-search--inline
     .select2-search__field{
-
-      font-size:13px !important;
-
-      font-family:'Plus Jakarta Sans',sans-serif !important;
-
       margin-top:0 !important;
-
-      height:24px !important;
+      line-height:44px !important;
+      font-size:13px !important;
+      font-family: 'Plus Jakarta Sans', sans-serif !important;
     }
 
-    /* ========================================================= */
-    /* HIDE TAG */
-    /* ========================================================= */
-
-    .select2-selection__choice{
-      display:none !important;
-    }
-
-    /* ========================================================= */
-    /* COUNTER */
-    /* ========================================================= */
-
+    /* Custom placeholder via CSS counter trick */
+    .select2-container--default
+    .select2-selection--multiple
     .select2-selection__rendered{
-
       display:flex !important;
       align-items:center !important;
-
-      overflow:hidden !important;
-
-      white-space:nowrap !important;
+      width:100% !important;
+      padding:0 !important;
+      font-size:13px !important;
+      font-family: 'Plus Jakarta Sans', sans-serif !important;
+      color:#64748b;
     }
 
+    .select2-container--default
+    .select2-selection--multiple
     .select2-selection__rendered::before{
-
-      content:attr(data-count);
-
+      content: attr(data-count);
       font-size:13px;
-      font-weight:600;
-
-      color:#334155;
-    }
-
-    /* ========================================================= */
-    /* DROPDOWN */
-    /* ========================================================= */
-
-    .select2-dropdown{
-
-      border-radius:14px !important;
-
-      border:1px solid #cbd5e1 !important;
-
+      color:#64748b;
+      white-space:nowrap;
       overflow:hidden;
-
-      box-shadow:
-        0 10px 25px rgba(0,0,0,.08);
+      text-overflow:ellipsis;
+      pointer-events:none;
     }
 
-    /* ========================================================= */
-    /* OPTION */
-    /* ========================================================= */
+    /* DROPDOWN */
+    .select2-dropdown{
+      border-radius:12px !important;
+      border:1px solid #e2e8f0 !important;
+      box-shadow: 0 8px 24px rgba(30,58,138,0.12) !important;
+      overflow:hidden;
+    }
 
     .select2-results__option{
-
       padding:10px 14px !important;
-
       font-size:13px;
-
       display:flex;
       align-items:center;
     }
@@ -527,31 +479,20 @@
     /* ========================================================= */
 
     .select2-results__option::before{
-
       content:'';
-
       width:14px;
       height:14px;
-
       border-radius:4px;
-
       border:1.5px solid #94a3b8;
-
       margin-right:10px;
-
       background:#fff;
-
       flex-shrink:0;
     }
 
     .select2-results__option--selected::before{
-
       background:#2563eb;
-
       border-color:#2563eb;
-
-      box-shadow:
-        inset 0 0 0 2px #fff;
+      box-shadow: inset 0 0 0 2px #fff;
     }
 
     /* ========================================================= */
@@ -559,11 +500,8 @@
     /* ========================================================= */
 
     .select2-results__option--selected{
-
       background:#eff6ff !important;
-
       color:#1d4ed8 !important;
-
       font-weight:600;
     }
 
@@ -572,13 +510,24 @@
     /* ========================================================= */
 
     @media(max-width:768px){
-
       .filter-group,
       .filter-group-wide{
-
         width:100%;
         min-width:100%;
       }
+    }
+
+    /* ===== TOP PART CHART scroll container ===== */
+    #chart-top-saving {
+      overflow-y: auto;
+      max-height: 560px;
+    }
+
+    /* ===== CATEGORY CARD part list scroll ===== */
+    .cat-part-list {
+      max-height: 340px;
+      overflow-y: auto;
+      padding-right: 4px;
     }
   </style>
 </head>
@@ -645,29 +594,23 @@
       <!-- Upload -->
       <div class="flex-shrink-0">
         <label class="filter-label">Upload File</label>
-        <div id="upload-area" class="upload-area px-4 py-2 flex items-center gap-2 cursor-pointer" style="min-width: 200px;" onclick="document.getElementById('file-input').click()">
+        <div id="upload-area" class="upload-area px-4 py-2 flex items-center gap-2 cursor-pointer" style="min-width: 180px;" onclick="document.getElementById('file-input').click()">
           <i class="fas fa-cloud-upload-alt text-blue-500 text-sm"></i>
           <div>
             <div id="upload-text" class="text-xs font-semibold text-blue-700">Klik atau drag Excel</div>
             <div id="upload-info" class="text-xs text-blue-500"></div>
           </div>
+          <!-- key: no value attr so browser always fires change -->
           <input type="file" id="file-input" accept=".xlsx,.xls" class="hidden" />
         </div>
       </div>
 
       <div class="filter-toolbar">
 
-        <div class="filter-group">
-          <label class="filter-label">Bulan</label>
-          <select id="filter-bulan"
-                  multiple
-                  class="filter-multi">
-          </select>
-        </div>
-
-        <div class="filter-group">
-          <label class="filter-label">Tahun</label>
-          <select id="filter-tahun"
+        <!-- PERIODE (gabungan Bulan + Tahun) -->
+        <div class="filter-group filter-group-wide">
+          <label class="filter-label">Periode</label>
+          <select id="filter-periode"
                   multiple
                   class="filter-multi">
           </select>
@@ -678,18 +621,13 @@
           <select id="filter-scenario"
                   multiple
                   class="filter-multi">
-
             <option value="Standard">Standard</option>
             <option value="Alternative">Alternative</option>
-
           </select>
         </div>
 
         <div class="filter-group">
-          <label class="filter-label">
-            Kategori Material
-          </label>
-
+          <label class="filter-label">Kategori Material</label>
           <select id="filter-kategori"
                   multiple
                   class="filter-multi">
@@ -697,16 +635,21 @@
         </div>
 
         <div class="filter-group filter-group-wide">
-          <label class="filter-label">
-            Part Name
-          </label>
-
+          <label class="filter-label">Part Name</label>
           <select id="filter-part"
                   multiple
                   class="filter-multi">
           </select>
         </div>
 
+        <!-- NEW: Filter Material -->
+        <div class="filter-group filter-group-wide">
+          <label class="filter-label">Material</label>
+          <select id="filter-material"
+                  multiple
+                  class="filter-multi">
+          </select>
+        </div>
       </div>
 
       <!-- Reset -->
@@ -735,13 +678,11 @@
 
   <!-- ====================== CONTAINER 2: OVERVIEW ====================== -->
   <div id="tab-overview" class="section-container active">
-    <!-- KPI + Charts layout -->
     <div class="grid grid-cols-12 gap-4">
 
       <!-- KPI Cards (left) -->
-      <div class="col-span-12 lg:col-span-3">
+      <div class="col-span-12 lg:col-span-2">
         <div class="grid grid-cols-1 gap-3" id="kpi-container">
-          <!-- KPI cards rendered by JS -->
           <div class="kpi-card blue skeleton" style="height: 90px;"></div>
           <div class="kpi-card cyan skeleton" style="height: 90px;"></div>
           <div class="kpi-card green skeleton" style="height: 90px;"></div>
@@ -768,23 +709,15 @@
         </div>
       </div>
 
-      <!-- Top Saving Chart (right) -->
-      <div class="col-span-12 lg:col-span-4">
+      <!-- Top All Parts Chart (right) — no toggle buttons, scrollable -->
+      <div class="col-span-12 lg:col-span-5">
         <div class="glass-card p-4 h-full">
-          <div class="flex items-center justify-between mb-3">
-            <div class="section-header" style="margin-bottom:0;">
-              <i class="fas fa-ranking-star text-green-600"></i> Top 10 Part
-            </div>
-            <div class="flex gap-1">
-              <button class="toggle-btn active" id="btn-top-saving" onclick="toggleTopChart('saving')">Top Saving</button>
-              <button class="toggle-btn" id="btn-top-loss" onclick="toggleTopChart('loss')">Top Loss</button>
-            </div>
-          </div>
-          <div id="chart-top-saving" style="min-height: 360px;">
+          <div id="chart-top-saving">
             <div class="skeleton" style="height:360px;"></div>
           </div>
         </div>
       </div>
+
     </div>
   </div>
 
@@ -793,10 +726,6 @@
     <div class="flex items-center justify-between mb-4">
       <div class="section-header" style="margin-bottom:0; font-size: 16px;">
         <i class="fas fa-layer-group text-blue-600"></i> Saving Berdasarkan Kategori Material
-      </div>
-      <div class="flex gap-1">
-        <button class="toggle-btn active" id="btn-cat-saving" onclick="toggleCategoryView('saving')">Top 5 Saving</button>
-        <button class="toggle-btn" id="btn-cat-loss" onclick="toggleCategoryView('loss')">Top 5 Loss</button>
       </div>
     </div>
     <div id="category-cards" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -850,7 +779,7 @@
           <div class="flex items-center justify-between mb-3">
             <div class="section-header" style="margin-bottom:0;"><i class="fas fa-table text-blue-600"></i> Detail NG Part</div>
             <div class="flex gap-2 items-center">
-              <input type="text" id="ng-search" placeholder="Cari part..." class="filter-input" style="width: 160px; height: 32px; padding: 4px 10px;" oninput="renderNGTablePage(1)" />
+              <input type="text" id="ng-search" placeholder="Cari part..." class="filter-input" style="width: 160px; height: 32px; padding: 4px 10px; border-radius:8px; border:1px solid #e2e8f0; font-size:13px;" oninput="renderNGTablePage(1)" />
               <button onclick="exportNGTableCSV()" class="toggle-btn"><i class="fas fa-download mr-1"></i>CSV</button>
             </div>
           </div>
@@ -894,7 +823,7 @@
           <div class="flex items-center justify-between mb-3">
             <div class="section-header" style="margin-bottom:0;"><i class="fas fa-table text-blue-600"></i> Most Used Material</div>
             <div class="flex gap-2">
-              <input type="text" id="mat-search" placeholder="Cari..." class="filter-input" style="width: 130px; height: 32px; padding: 4px 10px;" oninput="renderMatTablePage(1)" />
+              <input type="text" id="mat-search" placeholder="Cari..." class="filter-input" style="width: 130px; height: 32px; padding: 4px 10px; border-radius:8px; border:1px solid #e2e8f0; font-size:13px;" oninput="renderMatTablePage(1)" />
               <button onclick="exportMatTableExcel()" class="toggle-btn"><i class="fas fa-download mr-1"></i>Excel</button>
             </div>
           </div>
@@ -926,6 +855,7 @@
         </div>
       </div>
 
+    </div>
   </div>
 
 </main>
