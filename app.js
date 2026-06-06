@@ -10,9 +10,7 @@ const APP = {
   ngTablePage: 1,
   matTablePage: 1,
   PAGE_SIZE: 10,
-  topChartMode: 'saving',
   comparisonMode: 'nominal',
-  categoryViewMode: 'saving',
   debounceTimer: null,
   fileName: '',
 };
@@ -52,7 +50,6 @@ function formatKg(val) {
 function parseDate(str) {
   if (!str) return null;
   if (typeof str === 'number') {
-    // Excel serial date
     const d = new Date((str - 25569) * 86400 * 1000);
     return d;
   }
@@ -103,10 +100,18 @@ function normalizeRow(row) {
     kategori: String(row.kategori || row.KATEGORI || ''),
     bulan: d ? d.getMonth() + 1 : null,
     tahun: d ? d.getFullYear() : null,
-    // Calculated
+    // periode key: "Apr 2026"
+    get periode() {
+      if (!this.bulan || !this.tahun) return null;
+      return BULAN_NAMES[this.bulan - 1] + ' ' + this.tahun;
+    },
+    // Calculated fields
+    // total_cost = (qty_g/1000) * harga * qty_prod
     get total_cost() { return (this.qty_g / 1000) * this.harga * this.qty_prod; },
+    // ng_loss = (qty_g/1000) * harga * ng_prod
     get ng_loss() { return (this.qty_g / 1000) * this.harga * this.ng_prod; },
-    get usage_kg() { return (this.qty_g * this.qty_prod) / 1000 / 1000; },
+    // usage_kg = (qty_g * qty_prod) / 1_000_000  (qty_g in grams, result in kg)
+    get usage_kg() { return (this.qty_g * this.qty_prod) / 1_000_000; },
   };
 }
 
@@ -117,18 +122,18 @@ function processData(rows) {
 
 // ===== APPLY FILTERS =====
 function applyFilters() {
-  const bulan = Array.from(document.getElementById('filter-bulan').selectedOptions).map(o => +o.value).filter(Boolean);
-  const tahun = Array.from(document.getElementById('filter-tahun').selectedOptions).map(o => +o.value).filter(Boolean);
-  const scenario = document.getElementById('filter-scenario').value;
+  const periodes = $('#filter-periode').val() || [];
+  const scenarios = $('#filter-scenario').val() || [];
   const kategoris = $('#filter-kategori').val() || [];
   const parts = $('#filter-part').val() || [];
+  const materials = $('#filter-material').val() || [];
 
   APP.filteredData = APP.rawData.filter(row => {
-    if (bulan.length && !bulan.includes(row.bulan)) return false;
-    if (tahun.length && !tahun.includes(row.tahun)) return false;
-    if (scenario && row.scenario !== scenario) return false;
+    if (periodes.length && !periodes.includes(row.periode)) return false;
+    if (scenarios.length && !scenarios.includes(row.scenario)) return false;
     if (kategoris.length && !kategoris.includes(row.kategori)) return false;
     if (parts.length && !parts.includes(row.part_name)) return false;
+    if (materials.length && !materials.includes(row.material)) return false;
     return true;
   });
 
@@ -195,7 +200,7 @@ function renderCards() {
         </div>
         <div class="text-right flex-1 ml-2">
           <div class="text-xs font-semibold text-slate-500 mb-0.5">${k.title}</div>
-          <div class="font-mono font-bold text-slate-800 leading-tight" style="font-size:16px;">${k.val}</div>
+          <div class="font-mono font-bold text-slate-800 leading-tight" style="font-size:15px;">${k.val}</div>
           <div class="text-xs text-slate-400 mt-0.5">${k.sub}</div>
         </div>
       </div>
@@ -214,10 +219,9 @@ function renderComparisonChart() {
   destroyChart('comparison');
 
   const isNominal = APP.comparisonMode === 'nominal';
-  let categories, seriesData;
+  let seriesData;
 
   if (isNominal) {
-    categories = ['Cost Standard', 'Cost Alternative', 'Total Saving'];
     seriesData = [
       { x: 'Cost Standard', y: Math.round(totalStd), fillColor: '#1d4ed8' },
       { x: 'Cost Alternative', y: Math.round(totalAlt), fillColor: '#0891b2' },
@@ -226,7 +230,6 @@ function renderComparisonChart() {
   } else {
     const pctAlt = totalStd > 0 ? (totalAlt / totalStd) * 100 : 0;
     const pctSaving = totalStd > 0 ? ((totalStd - totalAlt) / totalStd) * 100 : 0;
-    categories = ['Cost Standard', 'Cost Alternative', 'Saving'];
     seriesData = [
       { x: 'Cost Standard', y: 100, fillColor: '#1d4ed8' },
       { x: 'Cost Alternative', y: +pctAlt.toFixed(2), fillColor: '#0891b2' },
@@ -276,72 +279,174 @@ function renderComparisonChart() {
   APP.charts.comparison.render();
 }
 
-// ===== RENDER TOP SAVING CHART =====
+// ===== RENDER TOP PART CHART (Bar with negative values, ALL parts, scrollable) =====
 function renderTopSavingChart() {
-  const mode = APP.topChartMode;
 
-  // Group by part_name: std vs alt
   const byPart = {};
+
   APP.filteredData.forEach(r => {
-    if (!byPart[r.part_name]) byPart[r.part_name] = { std: 0, alt: 0 };
-    if (r.scenario === 'Standard') byPart[r.part_name].std += r.total_cost;
-    if (r.scenario === 'Alternative') byPart[r.part_name].alt += r.total_cost;
+
+    if (!byPart[r.part_name]) {
+      byPart[r.part_name] = {
+        std: 0,
+        alt: 0
+      };
+    }
+
+    if (r.scenario === 'Standard')
+      byPart[r.part_name].std += r.total_cost;
+
+    if (r.scenario === 'Alternative')
+      byPart[r.part_name].alt += r.total_cost;
   });
 
-  let parts = Object.entries(byPart).map(([name, v]) => ({
-    name, saving: v.std - v.alt
-  }));
+  const parts = Object.entries(byPart)
+    .map(([name, v]) => ({
+      name,
+      saving: v.std - v.alt
+    }))
+    .sort((a, b) => b.saving - a.saving);
 
-  parts.sort((a, b) => mode === 'saving' ? b.saving - a.saving : a.saving - b.saving);
-  const top10 = parts.slice(0, 10);
+  const container =
+    document.getElementById('chart-top-saving');
 
-  destroyChart('topSaving');
+  if (parts.length === 0) {
+    container.innerHTML =
+      '<div class="empty-state"><div class="text-sm">Data belum tersedia</div></div>';
+    return;
+  }
 
-  const isSaving = mode === 'saving';
-  const barColor = isSaving ? '#10b981' : '#ef4444';
+  const totalSaving =
+    parts.reduce((sum, p) => sum + p.saving, 0);
 
-  const opts = {
-    series: [{ name: isSaving ? 'Saving' : 'Loss', data: top10.map(p => Math.round(Math.abs(p.saving))) }],
-    chart: {
-      type: 'bar',
-      height: 360,
-      toolbar: { show: false },
-      animations: { enabled: true, easing: 'easeinout', speed: 500 },
-      fontFamily: 'Plus Jakarta Sans, sans-serif',
-    },
-    plotOptions: {
-      bar: {
-        horizontal: true,
-        borderRadius: 6,
-        barHeight: '55%',
-      }
-    },
-    colors: [barColor],
-    dataLabels: {
-      enabled: true,
-      formatter: v => formatIDR(v),
-      style: { fontSize: '11px', fontWeight: '600', colors: ['#fff'] },
-    },
-    tooltip: {
-      y: { formatter: v => formatIDR(v, true) }
-    },
-    xaxis: {
-      categories: top10.map(p => p.name.length > 22 ? p.name.substring(0,20)+'…' : p.name),
-      labels: { formatter: v => formatIDR(v), style: { fontSize: '10px', colors: '#94a3b8' } },
-      axisBorder: { show: false }, axisTicks: { show: false },
-    },
-    yaxis: { labels: { style: { fontSize: '11px', fontWeight: '600', colors: '#475569' } } },
-    grid: { borderColor: '#f1f5f9', strokeDashArray: 3 },
-  };
+  const avgSaving =
+    totalSaving / parts.length;
 
-  APP.charts.topSaving = new ApexCharts(document.getElementById('chart-top-saving'), opts);
-  APP.charts.topSaving.render();
+  const maxAbsSaving = Math.max(
+    ...parts.map(p => Math.abs(p.saving)),
+    1
+  );
+
+  container.innerHTML = `
+
+    <div>
+
+      <div class="flex items-start justify-between mb-4">
+
+        <div>
+          <div class="font-bold text-slate-800 text-base">
+            All Part - Saving vs Loss
+          </div>
+
+          <div class="text-xs text-slate-500 mt-1">
+            ${parts.length} Part
+          </div>
+        </div>
+
+        <div class="text-right">
+
+          <div class="font-mono font-bold text-base ${
+            totalSaving >= 0
+              ? 'text-emerald-600'
+              : 'text-red-600'
+          }">
+            ${formatIDR(totalSaving)}
+          </div>
+
+          <div class="text-xs text-slate-400">
+            Avg ${formatIDR(avgSaving)}
+          </div>
+
+        </div>
+
+      </div>
+
+      <div class="text-xs font-semibold text-slate-500 mb-2">
+        Semua Part (${parts.length})
+      </div>
+
+      <div class="cat-part-list space-y-2">
+
+        ${parts.map((p, i) => {
+
+          const pct =
+            Math.abs(p.saving) /
+            maxAbsSaving * 100;
+
+          const isSaving =
+            p.saving >= 0;
+
+          const rankClass =
+            i === 0 ? 'rank-1' :
+            i === 1 ? 'rank-2' :
+            i === 2 ? 'rank-3' :
+            'rank-n';
+
+          return `
+
+          <div>
+
+            <div class="flex items-center justify-between mb-1">
+
+              <div class="flex items-center gap-1.5">
+
+                <span class="rank-badge ${rankClass}">
+                  ${i + 1}
+                </span>
+
+                <span
+                  class="text-xs text-slate-700 font-medium truncate"
+                  style="max-width:180px;"
+                  title="${p.name}">
+                  ${p.name}
+                </span>
+
+              </div>
+
+              <span
+                class="text-xs font-mono font-semibold ${
+                  isSaving
+                    ? 'text-emerald-600'
+                    : 'text-red-600'
+                }">
+
+                ${formatIDR(p.saving)}
+
+              </span>
+
+            </div>
+
+            <div class="progress-bar">
+
+              <div
+                class="progress-bar-fill"
+                style="
+                  width:${pct}%;
+                  background:${
+                    isSaving
+                      ? '#10b981'
+                      : '#ef4444'
+                  };
+                ">
+              </div>
+
+            </div>
+
+          </div>
+
+          `;
+
+        }).join('')}
+
+      </div>
+
+    </div>
+
+  `;
 }
 
 // ===== RENDER CATEGORY CARDS =====
 function renderCategoryCards() {
-  const mode = APP.categoryViewMode;
-
   // Group by kategori
   const byKat = {};
   APP.filteredData.forEach(r => {
@@ -359,28 +464,32 @@ function renderCategoryCards() {
     return;
   }
 
-  container.innerHTML = Object.entries(byKat).map(([kat, val], idx) => {
+  // Sort categories by saving descending
+  const sortedKat = Object.entries(byKat).sort((a, b) => {
+    const savA = a[1].std - a[1].alt;
+    const savB = b[1].std - b[1].alt;
+    return savB - savA;
+  });
+
+  container.innerHTML = sortedKat.map(([kat, val], idx) => {
     const saving = val.std - val.alt;
     const partCount = val.parts.size;
     const avgSaving = partCount > 0 ? saving / partCount : 0;
     const isSav = saving >= 0;
     const color = CATEGORY_COLORS[idx % CATEGORY_COLORS.length];
 
-    // Top parts by saving or loss
+    // All parts sorted by saving descending (highest saving first, loss at bottom)
     const partSaving = {};
     val.rows.forEach(r => {
       if (!partSaving[r.part_name]) partSaving[r.part_name] = { std: 0, alt: 0 };
       if (r.scenario === 'Standard') partSaving[r.part_name].std += r.total_cost;
       if (r.scenario === 'Alternative') partSaving[r.part_name].alt += r.total_cost;
     });
-    let topParts = Object.entries(partSaving)
-      .map(([name, v]) => ({ name, saving: v.std - v.alt }));
+    const allParts = Object.entries(partSaving)
+      .map(([name, v]) => ({ name, saving: v.std - v.alt }))
+      .sort((a, b) => b.saving - a.saving);
 
-    if (mode === 'saving') topParts.sort((a, b) => b.saving - a.saving);
-    else topParts.sort((a, b) => a.saving - b.saving);
-    const top5 = topParts.slice(0, 5);
-
-    const maxAbsSaving = Math.max(...top5.map(p => Math.abs(p.saving)), 1);
+    const maxAbsSaving = Math.max(...allParts.map(p => Math.abs(p.saving)), 1);
 
     return `
       <div class="category-card fade-in fade-in-delay-${(idx % 4) + 1}">
@@ -397,21 +506,21 @@ function renderCategoryCards() {
             </div>
           </div>
 
-          <div class="mb-3">
-            <div class="text-xs font-semibold text-slate-500 mb-2">${mode === 'saving' ? 'Top 5 Saving' : 'Top 5 Loss'}</div>
-            <div class="space-y-1.5">
-              ${top5.map((p, i) => {
+          <div class="mb-2">
+            <div class="text-xs font-semibold text-slate-500 mb-2">Semua Part (${allParts.length})</div>
+            <div class="cat-part-list space-y-2">
+              ${allParts.map((p, i) => {
                 const pct = Math.abs(p.saving) / maxAbsSaving * 100;
                 const pSav = p.saving >= 0;
                 const rankClass = i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : 'rank-n';
                 return `
                   <div>
-                    <div class="flex items-center justify-between mb-0.5">
+                    <div class="flex items-center justify-between mb-1">
                       <div class="flex items-center gap-1.5">
                         <span class="rank-badge ${rankClass}">${i+1}</span>
-                        <span class="text-xs text-slate-700 font-medium truncate" style="max-width:140px;" title="${p.name}">${p.name}</span>
+                        <span class="text-xs text-slate-700 font-medium truncate" style="max-width:160px;" title="${p.name}">${p.name}</span>
                       </div>
-                      <span class="text-xs font-mono font-semibold ${pSav ? 'text-emerald-600' : 'text-red-600'}">${formatIDR(p.saving)}</span>
+                      <span class="text-xs font-mono font-semibold ${pSav ? 'text-emerald-600' : 'text-red-600'}" style="margin-left:8px; white-space:nowrap;">${formatIDR(p.saving)}</span>
                     </div>
                     <div class="progress-bar">
                       <div class="progress-bar-fill" style="width:${pct}%; background: ${pSav ? '#10b981' : '#ef4444'};"></div>
@@ -429,21 +538,13 @@ function renderCategoryCards() {
 
 // ===== RENDER NG CHARTS =====
 function renderNGCharts() {
-
   // HANYA DATA ALTERNATIVE
-  const altData = APP.filteredData.filter(
-    r => r.scenario === 'Alternative'
-  );
+  const altData = APP.filteredData.filter(r => r.scenario === 'Alternative');
 
-  // ==============================
   // Group by part
-  // ==============================
   const byPart = {};
-
   altData.forEach(r => {
-
     if (!byPart[r.part_name]) {
-
       byPart[r.part_name] = {
         ng_loss: 0,
         ng_prod: 0,
@@ -452,7 +553,6 @@ function renderNGCharts() {
         kategori: r.kategori
       };
     }
-
     byPart[r.part_name].ng_loss += r.ng_loss;
     byPart[r.part_name].ng_prod += r.ng_prod;
     byPart[r.part_name].qty_prod += r.qty_prod;
@@ -462,27 +562,17 @@ function renderNGCharts() {
     .map(([name, v]) => ({
       ...v,
       part_name: name,
-      ng_rate:
-        v.qty_prod > 0
-          ? (v.ng_prod / v.qty_prod) * 100
-          : 0
+      ng_rate: v.qty_prod > 0 ? (v.ng_prod / v.qty_prod) * 100 : 0
     }))
     .sort((a, b) => b.ng_loss - a.ng_loss)
     .slice(0, 10);
 
-  // ==============================
   // Top 10 NG Part Bar
-  // ==============================
   destroyChart('ngTop');
-
   APP.charts.ngTop = new ApexCharts(
     document.getElementById('chart-ng-top'),
     {
-      series: [{
-        name: 'NG Loss',
-        data: parts.map(p => Math.round(p.ng_loss))
-      }],
-
+      series: [{ name: 'NG Loss', data: parts.map(p => Math.round(p.ng_loss)) }],
       chart: {
         type: 'bar',
         height: 320,
@@ -490,336 +580,145 @@ function renderNGCharts() {
         fontFamily: 'Plus Jakarta Sans, sans-serif',
         animations: { speed: 500 }
       },
-
-      plotOptions: {
-        bar: {
-          horizontal: true,
-          borderRadius: 6,
-          barHeight: '60%'
-        }
-      },
-
+      plotOptions: { bar: { horizontal: true, borderRadius: 6, barHeight: '60%' } },
       colors: ['#ef4444'],
-
       dataLabels: {
         enabled: true,
         formatter: v => formatIDR(v),
-
-        style: {
-          fontSize: '11px',
-          colors: ['#fff'],
-          fontWeight: '600'
-        }
+        style: { fontSize: '11px', colors: ['#fff'], fontWeight: '600' }
       },
-
-      tooltip: {
-        y: {
-          formatter: v => formatIDR(v, true)
-        }
-      },
-
+      tooltip: { y: { formatter: v => formatIDR(v, true) } },
       xaxis: {
-
-        categories: parts.map(p =>
-          p.part_name.length > 22
-            ? p.part_name.substring(0, 20) + '…'
-            : p.part_name
-        ),
-
-        labels: {
-          formatter: v => formatIDR(v),
-
-          style: {
-            fontSize: '10px',
-            colors: '#94a3b8'
-          }
-        },
-
+        categories: parts.map(p => p.part_name.length > 22 ? p.part_name.substring(0, 20) + '…' : p.part_name),
+        labels: { formatter: v => formatIDR(v), style: { fontSize: '10px', colors: '#94a3b8' } },
         axisBorder: { show: false },
         axisTicks: { show: false },
       },
-
-      yaxis: {
-        labels: {
-          style: {
-            fontSize: '11px',
-            fontWeight: '600',
-            colors: '#475569'
-          }
-        }
-      },
-
-      grid: {
-        borderColor: '#f1f5f9',
-        strokeDashArray: 3
-      },
+      yaxis: { labels: { style: { fontSize: '11px', fontWeight: '600', colors: '#475569' } } },
+      grid: { borderColor: '#f1f5f9', strokeDashArray: 3 },
     }
   );
-
   APP.charts.ngTop.render();
 
-  // ==============================
   // NG Loss by Kategori Donut
-  // ==============================
   const byKat = {};
-
   altData.forEach(r => {
-    byKat[r.kategori] =
-      (byKat[r.kategori] || 0) + r.ng_loss;
+    byKat[r.kategori] = (byKat[r.kategori] || 0) + r.ng_loss;
   });
-
   const katLabels = Object.keys(byKat);
-
-  const katVals = Object.values(byKat)
-    .map(v => Math.round(v));
+  const katVals = Object.values(byKat).map(v => Math.round(v));
 
   destroyChart('ngDonut');
-
   APP.charts.ngDonut = new ApexCharts(
     document.getElementById('chart-ng-donut'),
     {
       series: katVals,
       labels: katLabels,
-
       chart: {
         type: 'donut',
         height: 320,
         fontFamily: 'Plus Jakarta Sans, sans-serif',
         animations: { speed: 500 }
       },
-
       colors: CATEGORY_COLORS,
-
       dataLabels: {
         enabled: true,
-
-        formatter: (v, o) =>
-          o.w.globals.labels[o.seriesIndex] +
-          '\n' +
-          v.toFixed(1) +
-          '%'
+        formatter: (v, o) => o.w.globals.labels[o.seriesIndex] + '\n' + v.toFixed(1) + '%'
       },
-
       plotOptions: {
         pie: {
           donut: {
             size: '65%',
-
             labels: {
               show: true,
-
               total: {
                 show: true,
                 label: 'Total Loss',
-
-                formatter: () =>
-                  formatIDR(
-                    katVals.reduce((a, b) => a + b, 0)
-                  )
+                formatter: () => formatIDR(katVals.reduce((a, b) => a + b, 0))
               }
             }
           }
         }
       },
-
-      tooltip: {
-        y: {
-          formatter: v => formatIDR(v, true)
-        }
-      },
-
-      legend: {
-        position: 'bottom',
-        fontSize: '11px'
-      },
+      tooltip: { y: { formatter: v => formatIDR(v, true) } },
+      legend: { position: 'bottom', fontSize: '11px' },
     }
   );
-
   APP.charts.ngDonut.render();
 
-  // ==============================
   // NG Rate Gauge
-  // ==============================
-  const totalNG = altData.reduce(
-    (s, r) => s + r.ng_prod,
-    0
-  );
-
-  const totalQty = altData.reduce(
-    (s, r) => s + r.qty_prod,
-    0
-  );
-
-  const ngRate =
-    totalQty > 0
-      ? (totalNG / totalQty) * 100
-      : 0;
+  const totalNG = altData.reduce((s, r) => s + r.ng_prod, 0);
+  const totalQty = altData.reduce((s, r) => s + r.qty_prod, 0);
+  const ngRate = totalQty > 0 ? (totalNG / totalQty) * 100 : 0;
 
   destroyChart('ngGauge');
-
   APP.charts.ngGauge = new ApexCharts(
     document.getElementById('chart-ng-gauge'),
     {
       series: [+ngRate.toFixed(2)],
-
       chart: {
         type: 'radialBar',
         height: 280,
         fontFamily: 'Plus Jakarta Sans, sans-serif'
       },
-
       plotOptions: {
         radialBar: {
-
           startAngle: -135,
           endAngle: 135,
-
-          hollow: {
-            size: '60%'
-          },
-
+          hollow: { size: '60%' },
           dataLabels: {
-
-            name: {
-              show: true,
-              fontSize: '13px',
-              color: '#64748b',
-              offsetY: -6
-            },
-
-            value: {
-              fontSize: '24px',
-              fontWeight: '700',
-              color: '#1e293b',
-              offsetY: 8,
-              formatter: v => v + '%'
-            },
+            name: { show: true, fontSize: '13px', color: '#64748b', offsetY: -6 },
+            value: { fontSize: '24px', fontWeight: '700', color: '#1e293b', offsetY: 8, formatter: v => v + '%' },
           },
-
-          track: {
-            background: '#f1f5f9',
-            strokeWidth: '97%'
-          },
+          track: { background: '#f1f5f9', strokeWidth: '97%' },
         }
       },
-
       fill: {
         type: 'gradient',
-
         gradient: {
           shade: 'light',
           type: 'horizontal',
-
-          gradientToColors:
-            ngRate < 3
-              ? ['#10b981']
-              : ngRate < 8
-                ? ['#f59e0b']
-                : ['#ef4444'],
-
+          gradientToColors: ngRate < 3 ? ['#10b981'] : ngRate < 8 ? ['#f59e0b'] : ['#ef4444'],
           stops: [0, 100]
         }
       },
-
-      colors:
-        ngRate < 3
-          ? ['#34d399']
-          : ngRate < 8
-            ? ['#fbbf24']
-            : ['#f87171'],
-
+      colors: ngRate < 3 ? ['#34d399'] : ngRate < 8 ? ['#fbbf24'] : ['#f87171'],
       labels: ['NG Rate'],
     }
   );
-
   APP.charts.ngGauge.render();
+  document.getElementById('ng-rate-label').textContent = ngRate.toFixed(2) + '%';
 
-  document.getElementById('ng-rate-label')
-    .textContent = ngRate.toFixed(2) + '%';
-
-  // ==============================
   // Worst Material
-  // ==============================
   const byMat = {};
-
   altData.forEach(r => {
-
-    if (!byMat[r.material]) {
-
-      byMat[r.material] = {
-        ng: 0,
-        loss: 0
-      };
-    }
-
+    if (!byMat[r.material]) byMat[r.material] = { ng: 0, loss: 0 };
     byMat[r.material].ng += r.ng_prod;
     byMat[r.material].loss += r.ng_loss;
   });
-
   const worstMats = Object.entries(byMat)
-    .map(([mat, v]) => ({
-      mat,
-      ...v
-    }))
+    .map(([mat, v]) => ({ mat, ...v }))
     .sort((a, b) => b.loss - a.loss)
     .slice(0, 5);
 
-  const wc =
-    document.getElementById('worst-material-list');
-
+  const wc = document.getElementById('worst-material-list');
   if (worstMats.length === 0) {
-
-    wc.innerHTML = `
-      <div class="empty-state"
-           style="padding: 30px 20px;">
-        <div class="text-sm">
-          Data kosong
-        </div>
-      </div>
-    `;
-
+    wc.innerHTML = `<div class="empty-state" style="padding: 30px 20px;"><div class="text-sm">Data kosong</div></div>`;
   } else {
-
     wc.innerHTML = worstMats.map((m, i) => `
-      <div
-        class="flex items-center justify-between p-3 rounded-xl"
-        style="
-          background: ${i === 0 ? '#fef2f2' : '#f8fafc'};
-          border: 1px solid ${i === 0 ? '#fecaca' : '#e2e8f0'};
-        ">
-
+      <div class="flex items-center justify-between p-3 rounded-xl"
+           style="background: ${i === 0 ? '#fef2f2' : '#f8fafc'}; border: 1px solid ${i === 0 ? '#fecaca' : '#e2e8f0'};">
         <div class="flex items-center gap-2">
-
-          <div class="rank-badge ${['rank-1','rank-2','rank-3','rank-n','rank-n'][i]}">
-            ${i + 1}
-          </div>
-
+          <div class="rank-badge ${['rank-1','rank-2','rank-3','rank-n','rank-n'][i]}">${i + 1}</div>
           <div>
-
-            <div class="text-sm font-semibold text-slate-700">
-              ${m.mat || '—'}
-            </div>
-
-            <div class="text-xs text-slate-400">
-              NG: ${formatNumber(m.ng)}
-            </div>
-
+            <div class="text-sm font-semibold text-slate-700">${m.mat || '—'}</div>
+            <div class="text-xs text-slate-400">NG: ${formatNumber(m.ng)}</div>
           </div>
-
         </div>
-
         <div class="text-right">
-
-          <div class="text-sm font-bold font-mono text-red-600">
-            ${formatIDR(m.loss)}
-          </div>
-
-          <div class="text-xs text-slate-400">
-            NG Loss
-          </div>
-
+          <div class="text-sm font-bold font-mono text-red-600">${formatIDR(m.loss)}</div>
+          <div class="text-xs text-slate-400">NG Loss</div>
         </div>
-
       </div>
     `).join('');
   }
@@ -829,55 +728,31 @@ function renderNGCharts() {
 let ngTableData = [];
 
 function renderNGTable() {
-
   // HANYA DATA ALTERNATIVE
-  const altData = APP.filteredData.filter(
-    r => r.scenario === 'Alternative'
-  );
+  const altData = APP.filteredData.filter(r => r.scenario === 'Alternative');
 
   const byPart = {};
-
   altData.forEach(r => {
-
-    const key =
-      r.part_name + '|' + r.material;
-
+    const key = r.part_name + '|' + r.material;
     if (!byPart[key]) {
-
-      byPart[key] = {
-        part_name: r.part_name,
-        material: r.material,
-        qty_prod: 0,
-        ng_prod: 0,
-        ng_loss: 0
-      };
+      byPart[key] = { part_name: r.part_name, material: r.material, qty_prod: 0, ng_prod: 0, ng_loss: 0 };
     }
-
     byPart[key].qty_prod += r.qty_prod;
     byPart[key].ng_prod += r.ng_prod;
     byPart[key].ng_loss += r.ng_loss;
   });
 
-  ngTableData = Object.values(byPart)
-    .map(r => ({
-      ...r,
-      ng_rate:
-        r.qty_prod > 0
-          ? (r.ng_prod / r.qty_prod) * 100
-          : 0
-    }));
+  ngTableData = Object.values(byPart).map(r => ({
+    ...r,
+    ng_rate: r.qty_prod > 0 ? (r.ng_prod / r.qty_prod) * 100 : 0
+  }));
 
   renderNGTablePage(1);
 }
 
 function renderNGTablePage(page) {
-
   APP.ngTablePage = page;
-
-  const search = (
-    document.getElementById('ng-search')?.value || ''
-  ).toLowerCase();
-
+  const search = (document.getElementById('ng-search')?.value || '').toLowerCase();
   const { col, dir } = APP.ngTableSort;
 
   let data = ngTableData.filter(r =>
@@ -886,363 +761,146 @@ function renderNGTablePage(page) {
   );
 
   data.sort((a, b) => {
-
-    const av = a[col];
-    const bv = b[col];
-
-    return dir === 'asc'
-      ? (av > bv ? 1 : -1)
-      : (av < bv ? 1 : -1);
+    const av = a[col], bv = b[col];
+    return dir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
   });
 
   const total = data.length;
+  const start = (page - 1) * APP.PAGE_SIZE;
+  const slice = data.slice(start, start + APP.PAGE_SIZE);
 
-  const start =
-    (page - 1) * APP.PAGE_SIZE;
-
-  const slice = data.slice(
-    start,
-    start + APP.PAGE_SIZE
-  );
-
-  const tbody =
-    document.getElementById('ng-table-body');
-
+  const tbody = document.getElementById('ng-table-body');
   if (slice.length === 0) {
-
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="6"
-            class="text-center py-8 text-slate-400">
-          Tidak ada data
-        </td>
-      </tr>
-    `;
-
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-slate-400">Tidak ada data</td></tr>`;
   } else {
-
     tbody.innerHTML = slice.map(r => {
-
-      const ngClass =
-        r.ng_rate > 8
-          ? 'badge-red'
-          : r.ng_rate > 3
-            ? 'badge-yellow'
-            : 'badge-green';
-
+      const ngClass = r.ng_rate > 8 ? 'badge-red' : r.ng_rate > 3 ? 'badge-yellow' : 'badge-green';
       return `
         <tr>
-
-          <td class="font-medium text-slate-700">
-            ${r.part_name}
-          </td>
-
-          <td class="text-slate-500">
-            ${r.material}
-          </td>
-
-          <td class="font-mono text-slate-600">
-            ${formatNumber(r.qty_prod)}
-          </td>
-
-          <td class="font-mono text-red-600 font-semibold">
-            ${formatNumber(r.ng_prod)}
-          </td>
-
-          <td>
-            <span class="badge ${ngClass}">
-              ${r.ng_rate.toFixed(2)}%
-            </span>
-          </td>
-
-          <td class="font-mono font-bold text-red-700">
-            ${formatIDR(r.ng_loss)}
-          </td>
-
+          <td class="font-medium text-slate-700">${r.part_name}</td>
+          <td class="text-slate-500">${r.material}</td>
+          <td class="font-mono text-slate-600">${formatNumber(r.qty_prod)}</td>
+          <td class="font-mono text-red-600 font-semibold">${formatNumber(r.ng_prod)}</td>
+          <td><span class="badge ${ngClass}">${r.ng_rate.toFixed(2)}%</span></td>
+          <td class="font-mono font-bold text-red-700">${formatIDR(r.ng_loss)}</td>
         </tr>
       `;
     }).join('');
   }
 
-  renderPagination(
-    'ng-pagination',
-    page,
-    Math.ceil(total / APP.PAGE_SIZE),
-    renderNGTablePage
-  );
+  renderPagination('ng-pagination', page, Math.ceil(total / APP.PAGE_SIZE), renderNGTablePage);
 }
 
 function sortNGTable(col) {
-
   if (APP.ngTableSort.col === col) {
-
-    APP.ngTableSort.dir =
-      APP.ngTableSort.dir === 'asc'
-        ? 'desc'
-        : 'asc';
-
+    APP.ngTableSort.dir = APP.ngTableSort.dir === 'asc' ? 'desc' : 'asc';
   } else {
-
     APP.ngTableSort.col = col;
     APP.ngTableSort.dir = 'desc';
   }
-
   renderNGTablePage(1);
 }
 
 // ===== RENDER MATERIAL CHARTS =====
 function renderMaterialAnalysis() {
-
   // HANYA DATA ALTERNATIVE
-  const altData = APP.filteredData.filter(
-    r => r.scenario === 'Alternative'
-  );
+  const altData = APP.filteredData.filter(r => r.scenario === 'Alternative');
 
-  // ==============================
   // Composition Donut by usage_kg
-  // ==============================
   const byKat = {};
-
   altData.forEach(r => {
-    byKat[r.kategori] =
-      (byKat[r.kategori] || 0) + r.usage_kg;
+    byKat[r.kategori] = (byKat[r.kategori] || 0) + r.usage_kg;
   });
-
   const katLabels = Object.keys(byKat);
-
-  const katVals = Object.values(byKat)
-    .map(v => +v.toFixed(2));
+  const katVals = Object.values(byKat).map(v => +v.toFixed(2));
 
   destroyChart('matComposition');
-
   APP.charts.matComposition = new ApexCharts(
     document.getElementById('chart-mat-composition'),
     {
       series: katVals,
       labels: katLabels,
-
-      chart: {
-        type: 'donut',
-        height: 300,
-        fontFamily: 'Plus Jakarta Sans, sans-serif',
-        animations: {
-          speed: 500
-        }
-      },
-
+      chart: { type: 'donut', height: 300, fontFamily: 'Plus Jakarta Sans, sans-serif', animations: { speed: 500 } },
       colors: CATEGORY_COLORS,
-
       dataLabels: {
         enabled: true,
-        formatter: (v, o) =>
-          o.w.globals.labels[o.seriesIndex] +
-          '\n' +
-          v.toFixed(1) +
-          '%'
+        formatter: (v, o) => o.w.globals.labels[o.seriesIndex] + '\n' + v.toFixed(1) + '%'
       },
-
       plotOptions: {
         pie: {
           donut: {
             size: '65%',
-
             labels: {
               show: true,
-
-              total: {
-                show: true,
-                label: 'Total Usage',
-
-                formatter: () =>
-                  formatKg(
-                    katVals.reduce((a, b) => a + b, 0)
-                  )
-              }
+              total: { show: true, label: 'Total Usage', formatter: () => formatKg(katVals.reduce((a, b) => a + b, 0)) }
             }
           }
         }
       },
-
-      tooltip: {
-        y: {
-          formatter: v => formatKg(v)
-        }
-      },
-
-      legend: {
-        position: 'bottom',
-        fontSize: '11px'
-      },
+      tooltip: { y: { formatter: v => formatKg(v) } },
+      legend: { position: 'bottom', fontSize: '11px' },
     }
   );
-
   APP.charts.matComposition.render();
 
-  // ==============================
   // Top Material Cost Bar
-  // ==============================
   const byMat = {};
-
   altData.forEach(r => {
-
-    if (!byMat[r.material]) {
-      byMat[r.material] = 0;
-    }
-
+    if (!byMat[r.material]) byMat[r.material] = 0;
     byMat[r.material] += r.total_cost;
   });
-
-  const matSorted = Object.entries(byMat)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
+  const matSorted = Object.entries(byMat).sort((a, b) => b[1] - a[1]).slice(0, 10);
 
   destroyChart('matCost');
-
   APP.charts.matCost = new ApexCharts(
     document.getElementById('chart-mat-cost'),
     {
-      series: [{
-        name: 'Total Cost',
-        data: matSorted.map(m => Math.round(m[1]))
-      }],
-
-      chart: {
-        type: 'bar',
-        height: 300,
-        toolbar: {
-          show: false
-        },
-        fontFamily: 'Plus Jakarta Sans, sans-serif',
-        animations: {
-          speed: 500
-        }
-      },
-
-      plotOptions: {
-        bar: {
-          horizontal: true,
-          borderRadius: 6,
-          barHeight: '55%'
-        }
-      },
-
+      series: [{ name: 'Total Cost', data: matSorted.map(m => Math.round(m[1])) }],
+      chart: { type: 'bar', height: 300, toolbar: { show: false }, fontFamily: 'Plus Jakarta Sans, sans-serif', animations: { speed: 500 } },
+      plotOptions: { bar: { horizontal: true, borderRadius: 6, barHeight: '55%' } },
       colors: ['#1d4ed8'],
-
       dataLabels: {
         enabled: true,
-
         formatter: v => formatIDR(v),
-
-        style: {
-          fontSize: '11px',
-          colors: ['#fff'],
-          fontWeight: '600'
-        }
+        style: { fontSize: '11px', colors: ['#fff'], fontWeight: '600' }
       },
-
-      tooltip: {
-        y: {
-          formatter: v => formatIDR(v, true)
-        }
-      },
-
+      tooltip: { y: { formatter: v => formatIDR(v, true) } },
       xaxis: {
-
-        categories: matSorted.map(([m]) =>
-          m.length > 22
-            ? m.substring(0, 20) + '…'
-            : m
-        ),
-
-        labels: {
-          formatter: v => formatIDR(v),
-
-          style: {
-            fontSize: '10px',
-            colors: '#94a3b8'
-          }
-        },
-
-        axisBorder: {
-          show: false
-        },
-
-        axisTicks: {
-          show: false
-        },
+        categories: matSorted.map(([m]) => m.length > 22 ? m.substring(0, 20) + '…' : m),
+        labels: { formatter: v => formatIDR(v), style: { fontSize: '10px', colors: '#94a3b8' } },
+        axisBorder: { show: false },
+        axisTicks: { show: false },
       },
-
-      yaxis: {
-        labels: {
-          style: {
-            fontSize: '11px',
-            fontWeight: '600',
-            colors: '#475569'
-          }
-        }
-      },
-
-      grid: {
-        borderColor: '#f1f5f9',
-        strokeDashArray: 3
-      },
+      yaxis: { labels: { style: { fontSize: '11px', fontWeight: '600', colors: '#475569' } } },
+      grid: { borderColor: '#f1f5f9', strokeDashArray: 3 },
     }
   );
-
   APP.charts.matCost.render();
 
-  // ==============================
-  // Most Used Material Table
-  // ==============================
   renderMatTable();
 }
 
 let matTableData = [];
 
 function renderMatTable() {
-
-  // HANYA DATA ALTERNATIVE
-  const altData = APP.filteredData.filter(
-    r => r.scenario === 'Alternative'
-  );
-
+  const altData = APP.filteredData.filter(r => r.scenario === 'Alternative');
   const byMat = {};
-
   altData.forEach(r => {
-
     if (!byMat[r.material]) {
-
-      byMat[r.material] = {
-        material: r.material,
-        kategori: r.kategori,
-        usage_kg: 0,
-        total_cost: 0,
-        parts: new Set()
-      };
+      byMat[r.material] = { material: r.material, kategori: r.kategori, usage_kg: 0, total_cost: 0, parts: new Set() };
     }
-
     byMat[r.material].usage_kg += r.usage_kg;
     byMat[r.material].total_cost += r.total_cost;
     byMat[r.material].parts.add(r.part_name);
   });
 
-  matTableData = Object.values(byMat)
-    .map(r => ({
-      ...r,
-      total_part: r.parts.size
-    }));
-
+  matTableData = Object.values(byMat).map(r => ({ ...r, total_part: r.parts.size }));
   renderMatTablePage(1);
 }
 
 function renderMatTablePage(page) {
-
   APP.matTablePage = page;
-
-  const search = (
-    document.getElementById('mat-search')?.value || ''
-  ).toLowerCase();
-
+  const search = (document.getElementById('mat-search')?.value || '').toLowerCase();
   const { col, dir } = APP.matTableSort;
 
   let data = matTableData.filter(r =>
@@ -1251,122 +909,45 @@ function renderMatTablePage(page) {
   );
 
   data.sort((a, b) => {
-
-    const av = a[col];
-    const bv = b[col];
-
-    return dir === 'asc'
-      ? (av > bv ? 1 : -1)
-      : (av < bv ? 1 : -1);
+    const av = a[col], bv = b[col];
+    return dir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
   });
 
-  const maxUsage = Math.max(
-    ...data.map(r => r.usage_kg),
-    1
-  );
-
+  const maxUsage = Math.max(...data.map(r => r.usage_kg), 1);
   const total = data.length;
+  const start = (page - 1) * APP.PAGE_SIZE;
+  const slice = data.slice(start, start + APP.PAGE_SIZE);
 
-  const start =
-    (page - 1) * APP.PAGE_SIZE;
-
-  const slice = data.slice(
-    start,
-    start + APP.PAGE_SIZE
-  );
-
-  const tbody =
-    document.getElementById('mat-table-body');
-
+  const tbody = document.getElementById('mat-table-body');
   if (slice.length === 0) {
-
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="5"
-            class="text-center py-8 text-slate-400">
-          Tidak ada data
-        </td>
-      </tr>
-    `;
-
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-8 text-slate-400">Tidak ada data</td></tr>`;
   } else {
-
     tbody.innerHTML = slice.map(r => `
       <tr>
-
-        <td class="font-medium text-slate-700">
-          ${r.material}
-        </td>
-
+        <td class="font-medium text-slate-700">${r.material}</td>
+        <td><span class="badge badge-blue">${r.kategori}</span></td>
         <td>
-          <span class="badge badge-blue">
-            ${r.kategori}
-          </span>
-        </td>
-
-        <td>
-
           <div class="flex items-center gap-2">
-
-            <div style="width:60px;">
-
-              <div class="progress-bar">
-
-                <div
-                  class="progress-bar-fill"
-                  style="
-                    width:${(r.usage_kg / maxUsage * 100).toFixed(1)}%;
-                    background:#1d4ed8;
-                  ">
-                </div>
-
-              </div>
-
-            </div>
-
-            <span class="font-mono text-xs text-slate-600">
-              ${formatKg(r.usage_kg)}
-            </span>
-
+            <div style="width:60px;"><div class="progress-bar"><div class="progress-bar-fill" style="width:${(r.usage_kg / maxUsage * 100).toFixed(1)}%; background:#1d4ed8;"></div></div></div>
+            <span class="font-mono text-xs text-slate-600">${formatKg(r.usage_kg)}</span>
           </div>
-
         </td>
-
-        <td class="font-mono font-semibold text-slate-700">
-          ${formatIDR(r.total_cost)}
-        </td>
-
-        <td class="font-mono text-slate-600">
-          ${r.total_part}
-        </td>
-
+        <td class="font-mono font-semibold text-slate-700">${formatIDR(r.total_cost)}</td>
+        <td class="font-mono text-slate-600">${r.total_part}</td>
       </tr>
     `).join('');
   }
 
-  renderPagination(
-    'mat-pagination',
-    page,
-    Math.ceil(total / APP.PAGE_SIZE),
-    renderMatTablePage
-  );
+  renderPagination('mat-pagination', page, Math.ceil(total / APP.PAGE_SIZE), renderMatTablePage);
 }
 
 function sortMatTable(col) {
-
   if (APP.matTableSort.col === col) {
-
-    APP.matTableSort.dir =
-      APP.matTableSort.dir === 'asc'
-        ? 'desc'
-        : 'asc';
-
+    APP.matTableSort.dir = APP.matTableSort.dir === 'asc' ? 'desc' : 'asc';
   } else {
-
     APP.matTableSort.col = col;
     APP.matTableSort.dir = 'desc';
   }
-
   renderMatTablePage(1);
 }
 
@@ -1447,254 +1028,107 @@ function toggleComparison(mode) {
   renderComparisonChart();
 }
 
-function toggleTopChart(mode) {
-  APP.topChartMode = mode;
-  document.getElementById('btn-top-saving').classList.toggle('active', mode === 'saving');
-  document.getElementById('btn-top-loss').classList.toggle('active', mode === 'loss');
-  renderTopSavingChart();
-}
-
-function toggleCategoryView(mode) {
-  APP.categoryViewMode = mode;
-  document.getElementById('btn-cat-saving').classList.toggle('active', mode === 'saving');
-  document.getElementById('btn-cat-loss').classList.toggle('active', mode === 'loss');
-  renderCategoryCards();
-}
-
 // ==============================
 // POPULATE FILTERS
 // ==============================
 function populateFilters() {
-
-  const bulanSet = new Set();
-  const tahunSet = new Set();
+  const periodeSet = new Set();
   const katSet = new Set();
   const partSet = new Set();
+  const materialSet = new Set();
 
   APP.rawData.forEach(r => {
-
-    if (r.bulan !== undefined && r.bulan !== null) {
-      bulanSet.add(r.bulan);
-    }
-
-    if (r.tahun !== undefined && r.tahun !== null) {
-      tahunSet.add(r.tahun);
-    }
-
-    if (r.kategori) {
-      katSet.add(r.kategori);
-    }
-
-    if (r.part_name) {
-      partSet.add(r.part_name);
-    }
+    if (r.periode) periodeSet.add(r.periode);
+    if (r.kategori) katSet.add(r.kategori);
+    if (r.part_name) partSet.add(r.part_name);
+    if (r.material) materialSet.add(r.material);
   });
 
-  // =========================
-  // SET OPTIONS
-  // =========================
+  // Sort periode: by tahun then bulan
+  const sortedPeriodes = [...periodeSet].sort((a, b) => {
+    // "Apr 2026" -> parse
+    const parseP = str => {
+      const [mon, yr] = str.split(' ');
+      const mIdx = BULAN_NAMES.indexOf(mon);
+      return +yr * 100 + mIdx;
+    };
+    return parseP(a) - parseP(b);
+  });
 
-  $('#filter-bulan').html(
-    [...bulanSet]
-      .sort((a, b) => a - b)
-      .map(m => `
-        <option value="${m}">
-          ${BULAN_NAMES[m - 1]}
-        </option>
-      `)
-      .join('')
-  );
-
-  $('#filter-tahun').html(
-    [...tahunSet]
-      .sort()
-      .map(y => `
-        <option value="${y}">
-          ${y}
-        </option>
-      `)
-      .join('')
+  $('#filter-periode').html(
+    sortedPeriodes.map(p => `<option value="${p}">${p}</option>`).join('')
   );
 
   $('#filter-kategori').html(
-    [...katSet]
-      .sort()
-      .map(k => `
-        <option value="${k}">
-          ${k}
-        </option>
-      `)
-      .join('')
+    [...katSet].sort().map(k => `<option value="${k}">${k}</option>`).join('')
   );
 
   $('#filter-part').html(
-    [...partSet]
-      .sort()
-      .map(p => `
-        <option value="${p}">
-          ${p}
-        </option>
-      `)
-      .join('')
+    [...partSet].sort().map(p => `<option value="${p}">${p}</option>`).join('')
   );
 
-  // =========================
-  // DESTROY OLD SELECT2
-  // =========================
+  $('#filter-material').html(
+    [...materialSet].sort().map(m => `<option value="${m}">${m}</option>`).join('')
+  );
 
+  // Destroy old Select2
   $('.filter-multi').each(function () {
-
     if ($(this).hasClass('select2-hidden-accessible')) {
       $(this).select2('destroy');
     }
-
   });
 
-  // =========================
-  // INIT SELECT2
-  // =========================
-
+  // Init Select2
   $('.filter-multi').select2({
-
     width: '100%',
-
     closeOnSelect: false,
-
     allowClear: true,
-
     placeholder: 'Pilih Data',
-
-    language: {
-      noResults: () => 'Data tidak ditemukan'
-    }
-
+    language: { noResults: () => 'Data tidak ditemukan' }
   });
 
-  // =========================
-  // UPDATE COUNTER
-  // =========================
-
+  // Update counter display
   function updateCounter(id, emptyText) {
-
     const val = $(id).val();
-
-    const total =
-      Array.isArray(val)
-        ? val.length
-        : 0;
-
-    const rendered = $(id)
-      .next('.select2-container')
-      .find('.select2-selection__rendered');
-
-    // kosongkan default render
+    const total = Array.isArray(val) ? val.length : 0;
+    const rendered = $(id).next('.select2-container').find('.select2-selection__rendered');
     rendered.find('li').hide();
-
-    // custom text
     if (total === 0) {
-
-      rendered.attr(
-        'data-count',
-        emptyText
-      );
-
+      rendered.attr('data-count', emptyText);
     } else {
-
-      rendered.attr(
-        'data-count',
-        total + ' dipilih'
-      );
+      rendered.attr('data-count', total + ' dipilih');
     }
   }
 
-  // =========================
-  // INIT COUNTER
-  // =========================
+  updateCounter('#filter-periode', 'Semua Periode');
+  updateCounter('#filter-scenario', 'Semua Scenario');
+  updateCounter('#filter-kategori', 'Semua Kategori');
+  updateCounter('#filter-part', 'Semua Part');
+  updateCounter('#filter-material', 'Semua Material');
 
-  updateCounter(
-    '#filter-bulan',
-    'Semua Bulan'
-  );
-
-  updateCounter(
-    '#filter-tahun',
-    'Semua Tahun'
-  );
-
-  updateCounter(
-    '#filter-scenario',
-    'Semua Scenario'
-  );
-
-  updateCounter(
-    '#filter-kategori',
-    'Semua Kategori'
-  );
-
-  updateCounter(
-    '#filter-part',
-    'Semua Part'
-  );
-
-  // =========================
-  // REMOVE OLD EVENT
-  // =========================
-
+  // Remove old events
   $('.filter-multi').off('change');
 
-  // =========================
-  // CHANGE EVENT
-  // =========================
-
+  // Change event
   $('.filter-multi').on('change', function () {
-
-    const id =
-      '#' + $(this).attr('id');
-
-    let emptyText = 'Pilih Data';
-
-    switch (id) {
-
-      case '#filter-bulan':
-        emptyText = 'Semua Bulan';
-        break;
-
-      case '#filter-tahun':
-        emptyText = 'Semua Tahun';
-        break;
-
-      case '#filter-scenario':
-        emptyText = 'Semua Scenario';
-        break;
-
-      case '#filter-kategori':
-        emptyText = 'Semua Kategori';
-        break;
-
-      case '#filter-part':
-        emptyText = 'Semua Part';
-        break;
-    }
-
-    updateCounter(id, emptyText);
-
+    const id = '#' + $(this).attr('id');
+    const emptyMap = {
+      '#filter-periode': 'Semua Periode',
+      '#filter-scenario': 'Semua Scenario',
+      '#filter-kategori': 'Semua Kategori',
+      '#filter-part': 'Semua Part',
+      '#filter-material': 'Semua Material',
+    };
+    updateCounter(id, emptyMap[id] || 'Pilih Data');
     debounceFilter();
   });
 
-  // =========================
-  // FIX SEARCH INPUT
-  // =========================
-
   $('.select2-search__field').css({
     width: '100%',
-
     minWidth: '120px',
-
     fontSize: '13px',
-
     fontFamily: 'Plus Jakarta Sans, sans-serif'
   });
-
 }
 
 // ===== DEBOUNCE FILTER =====
@@ -1707,11 +1141,11 @@ function debounceFilter() {
 
 // ===== RESET FILTERS =====
 function resetFilters() {
-  document.getElementById('filter-bulan').selectedIndex = -1;
-  document.getElementById('filter-tahun').selectedIndex = -1;
-  document.getElementById('filter-scenario').value = '';
+  $('#filter-periode').val(null).trigger('change');
+  $('#filter-scenario').val(null).trigger('change');
   $('#filter-kategori').val(null).trigger('change');
   $('#filter-part').val(null).trigger('change');
+  $('#filter-material').val(null).trigger('change');
   applyFilters();
 }
 
@@ -1733,7 +1167,7 @@ function exportExcel() {
     kategori: r.kategori,
     total_cost: +r.total_cost.toFixed(2),
     ng_loss: +r.ng_loss.toFixed(2),
-    usage_kg: +r.usage_kg.toFixed(4),
+    usage_kg: +r.usage_kg.toFixed(6),
   })));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Filtered Data');
@@ -1757,7 +1191,7 @@ function exportMatTableExcel() {
   const ws = XLSX.utils.json_to_sheet(matTableData.map(r => ({
     material: r.material,
     kategori: r.kategori,
-    usage_kg: +r.usage_kg.toFixed(4),
+    usage_kg: +r.usage_kg.toFixed(6),
     total_cost: +r.total_cost.toFixed(2),
     total_part: r.total_part,
   })));
@@ -1840,19 +1274,20 @@ function initDragDrop() {
   ua.addEventListener('dragleave', () => ua.classList.remove('dragover'));
 }
 
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
-  // Set current date
   document.getElementById('header-date').textContent = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
 
-  // Init Select2 (empty)
-  $('#filter-kategori').select2({ placeholder: 'Pilih Kategori', allowClear: true });
-  $('#filter-part').select2({ placeholder: 'Pilih Part', allowClear: true });
+  // Init Select2 with empty data
+  $('#filter-periode').select2({ placeholder: 'Semua Periode', allowClear: true });
+  $('#filter-scenario').select2({ placeholder: 'Semua Scenario', allowClear: true });
+  $('#filter-kategori').select2({ placeholder: 'Semua Kategori', allowClear: true });
+  $('#filter-part').select2({ placeholder: 'Semua Part', allowClear: true });
+  $('#filter-material').select2({ placeholder: 'Semua Material', allowClear: true });
 
-  // Init drag & drop
   initDragDrop();
-  populateFilters()
+  populateFilters();
 
-  // Init Lucide icons
   if (window.lucide) lucide.createIcons();
 });
